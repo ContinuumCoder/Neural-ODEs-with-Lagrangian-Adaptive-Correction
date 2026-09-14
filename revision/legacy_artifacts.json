@@ -1,0 +1,14 @@
+{
+  "results/fitzhugh_nagumo_data.pt": {
+    "sha256": "763c075ae982a58ab0939bc8a83d245f03d3e3d706188b8f5aeee6900e535e22"
+  },
+  "results/lotka_volterra_data.pt": {
+    "sha256": "577503216219b126f179ea71e4cfafe9efbc6d0ec325cfc732b4a69af8fb1cb9"
+  },
+  "results/shallow_water_data.pt": {
+    "sha256": "17c19f2904e2cc515c76b54b0396bd2fe6d73c1f56d5a7991cbeca739abdfd42"
+  },
+  "results/franka_robot_data.pt": {
+    "sha256": "e1f05b1ab201e63032d86f434d861d31d65c7ed39aa6fe636432f792b651cb54"
+  }
+}

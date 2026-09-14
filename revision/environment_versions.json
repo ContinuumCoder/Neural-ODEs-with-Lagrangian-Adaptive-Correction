@@ -1,0 +1,17 @@
+{
+  "python": "3.11.7 (main, Dec 15 2023, 18:12:31) [GCC 11.2.0]",
+  "platform": "Linux-6.8.0-136-generic-x86_64-with-glibc2.35",
+  "packages": {
+    "torch": "2.7.1+cu118",
+    "torchdiffeq": "0.2.5",
+    "numpy": "1.26.4",
+    "scipy": "1.11.4",
+    "matplotlib": "3.8.0",
+    "PyYAML": "6.0.1",
+    "tqdm": "4.65.0"
+  },
+  "torch_runtime": "2.7.1+cu118",
+  "cuda": "11.8",
+  "Pillow": "10.2.0",
+  "poppler_pdfinfo": "22.02.0"
+}

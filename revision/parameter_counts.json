@@ -1,0 +1,94 @@
+{
+  "17": {
+    "NODE-LAC": {
+      "total": 93714,
+      "node": 74769,
+      "gain": 18945,
+      "padded": false
+    },
+    "NODE": {
+      "total": 23102,
+      "padded": false
+    },
+    "SNDE": {
+      "total": 23102,
+      "padded": false
+    },
+    "ConCerNet": {
+      "total": 26386,
+      "padded": false
+    },
+    "SymODEN": {
+      "total": 19073,
+      "padded": true
+    },
+    "HNN": {
+      "total": 22541,
+      "padded": true
+    },
+    "CLNN": {
+      "total": 31102,
+      "padded": true
+    },
+    "PORT-HJNN": {
+      "total": 22398,
+      "padded": true
+    },
+    "PNODE": {
+      "total": 23102,
+      "padded": false
+    },
+    "CPNODE": {
+      "total": 23102,
+      "padded": false
+    }
+  },
+  "31": {
+    "NODE-LAC": {
+      "total": 102688,
+      "node": 81951,
+      "gain": 20737,
+      "padded": false
+    },
+    "NODE": {
+      "total": 26896,
+      "padded": false
+    },
+    "SNDE": {
+      "total": 26896,
+      "padded": false
+    },
+    "ConCerNet": {
+      "total": 30880,
+      "padded": false
+    },
+    "SymODEN": {
+      "total": 20865,
+      "padded": true
+    },
+    "HNN": {
+      "total": 24501,
+      "padded": true
+    },
+    "CLNN": {
+      "total": 56225,
+      "padded": true
+    },
+    "PORT-HJNN": {
+      "total": 58609,
+      "padded": true
+    },
+    "PNODE": {
+      "total": 26896,
+      "padded": false
+    },
+    "CPNODE": {
+      "total": 26896,
+      "padded": false
+    }
+  },
+  "regularization": {
+    "NODE-LAC": "Adam weight_decay=1e-4; no extra parameter-norm term",
+    "baselines": "Adam weight_decay=1e-4 AND baseline compute_loss parameter squared norm with coefficient1e-4; original implementation retained"
+  }
+}

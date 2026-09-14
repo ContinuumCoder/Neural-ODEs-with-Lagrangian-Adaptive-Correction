@@ -1,0 +1,10 @@
+{
+  "description": "Training and evaluation sources used for the reported experiments. The public entry point calls these implementations.",
+  "files": {
+    "revision/run_standardized_revision.py": "36e82eeff846395e12edfc167f32a85f472e1ed5a5353738318430c1bf8c0b0a",
+    "revision/tune_validation.py": "3ae1b5ef2d0fcaafd8960110665eec6f76b7f7eec2622a02a9c48a6b2f8318fb",
+    "revision/tune_lyapunov_loss.py": "d103a5622fbdcb7ff28899367eeeedaab33c16ae296ad48d641cde2e06929fac",
+    "revision/evaluate_validation_tuning.py": "83a70507bc4717c38fb1abc81f6984cb5a8282574763367af95307bf6af8d243",
+    "revision/evaluate_lyapunov_loss.py": "4c67c3e6ee6252660aabf2fc8e010bd91d8e09412914dfd782b29a78c970c3cc"
+  }
+}
