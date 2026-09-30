@@ -1,7 +1,6 @@
-"""GPU-accelerated data generation for all systems.
+"""Batched forward Euler data generation for the four benchmark systems.
 
-Replaces per-trajectory scipy.solve_ivp with batched Euler integration on GPU.
-256 trajectories generated simultaneously in one tensor operation.
+Trajectories share a time grid and are advanced together on the chosen device.
 """
 
 import torch
@@ -68,7 +67,7 @@ def generate_lv_gpu(n_trajectories=256, t_span=(0, 1.5), dt_save=0.015,
                     alpha=0.8, beta=0.5, gamma_lv=0.3, delta=0.4,
                     K_u=8.0, h=0.5, noise_std=0.15,
                     global_coupling=0.3, gamma_E=0.5):
-    """Lotka-Volterra with global coupling + energy variable. Batch Euler on GPU."""
+    """Batched Euler simulation of Lotka-Volterra fields and a memory variable."""
     torch.manual_seed(seed)
     B = n_trajectories
     dx = 1.0 / n_grid
@@ -113,7 +112,7 @@ def generate_lv_gpu(n_trajectories=256, t_span=(0, 1.5), dt_save=0.015,
 
             f_resp = beta * u * v / (1.0 + h * u)
 
-            # Global mean-field coupling (non-local → breaks Hamiltonian structure)
+            # Couple each field to its spatial mean.
             u_mean = u.mean(-1, keepdim=True)
             v_mean = v.mean(-1, keepdim=True)
             G1 = global_coupling * (u_mean - u)
@@ -135,7 +134,7 @@ def generate_lv_gpu(n_trajectories=256, t_span=(0, 1.5), dt_save=0.015,
     trajs = torch.stack(trajs, dim=1)
     n_train = B // 2
 
-    # Auto-calibrate energy threshold (median E → half data violates)
+    # Return the median memory value across all trajectories as threshold metadata.
     E_all = trajs[..., -1]
     e_threshold = float(E_all.median().item())
 
@@ -151,10 +150,7 @@ def generate_sw_gpu(n_trajectories=256, t_span=(0, 5), dt_save=0.05,
                     dt_integrate=1e-3, seed=42, device='cuda',
                     n_grid=15, c1=1.0, c2=1.2, a1=4.0, a2=5.5,
                     b1=0.02, b2=0.15, gamma_E=0.5, e_threshold=6.1):
-    """Multi-scale coupled wave system with reaction-diffusion dynamics.
-
-    Models nonlinear wave-wave interaction with viscous dissipation and
-    energy constraints — captures multi-scale coupling in shallow water physics.
+    """Batched Euler simulation of the coupled-field shallow-water benchmark.
 
     d_eta/dt = c1^2 * Lap(eta) - a1*eta^3 + b1*eta*u + I(t)
     d_u/dt   = c2^2 * Lap(u)   - a2*u^3   + b2*u*eta + J(t)
@@ -162,10 +158,10 @@ def generate_sw_gpu(n_trajectories=256, t_span=(0, 5), dt_save=0.05,
     """
     torch.manual_seed(seed)
     B = n_trajectories
-    dx = 0.1  # same as FHN
+    dx = 0.1
     dtype = torch.float64
 
-    # IC
+    # Initial conditions
     eta0 = torch.empty(B, n_grid, device=device, dtype=dtype).uniform_(-0.5, 1.5)
     u0 = torch.empty(B, n_grid, device=device, dtype=dtype).uniform_(-0.2, 0.8)
     E0 = ((eta0.pow(2) + u0.pow(2)).mean(-1, keepdim=True)) / gamma_E
@@ -214,14 +210,14 @@ def generate_sw_gpu(n_trajectories=256, t_span=(0, 5), dt_save=0.05,
 def generate_robot_gpu(n_trajectories=256, t_span=(0, 5), dt_save=0.05,
                        dt_integrate=1e-3, seed=42, device='cuda',
                        n_joints=8, gamma_E=0.5):
-    """8-DOF robot arm chain with Euler-Lagrange dynamics + cubic damping + energy.
+    """Batched Euler simulation of a coupled, damped robot-arm chain.
 
-    State: [q(NJ), qdot(NJ), E] = 2*NJ+1 dimensional.
+    State: [q(NJ), qdot(NJ), E], with dimension 2*NJ+1.
     dq/dt = qdot
     dqdot/dt = tau(t) + Lap(q) + 0.8*Lap(qdot) + 0.1*sin(0.5t)
                + 0.2*(q_mean-q) - 0.2*qdot - 4.0*qdot^3
                - 1.5*sin(q) - 0.3*q^3 + 0.05*q*qdot
-    dE/dt = mean(q^2+qdot^2) - gamma*E
+    dE/dt = mean(q^2+qdot^2) - gamma_E*E
     """
     torch.manual_seed(seed)
     B = n_trajectories

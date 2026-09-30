@@ -15,7 +15,7 @@ class DynamicalSystem(ABC):
 
     @abstractmethod
     def dynamics(self, t, state):
-        """True system dynamics dx/dt. Returns numpy array."""
+        """Return the system vector field dx/dt as a NumPy array."""
         pass
 
     @abstractmethod
@@ -51,7 +51,7 @@ class DynamicalSystem(ABC):
             except Exception:
                 continue
 
-        # Pad if some trajectories failed
+        # Fill missing trajectories by repeating the first available trajectory.
         if len(all_trajs) == 0:
             x0 = self.sample_initial_condition(rng)
             all_trajs.append(np.tile(x0, (len(t_eval), 1)))

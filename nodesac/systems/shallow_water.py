@@ -1,7 +1,6 @@
-"""Multi-scale coupled wave system with reaction-diffusion dynamics.
+"""Coupled-field shallow-water benchmark with reaction-diffusion dynamics.
 
-Models nonlinear wave-wave interaction with viscous dissipation and
-energy constraints — captures multi-scale coupling effects.
+The two fields have cubic damping and an appended quadratic memory variable.
 """
 
 import torch

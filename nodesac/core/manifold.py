@@ -1,30 +1,30 @@
-"""Constraint manifold definitions for each physical system."""
+"""Constraint residuals and gradient-based correction utilities."""
 
 import torch
 import torch.nn as nn
 
 
 class ConstraintManifold:
-    """Base class for constraint manifolds L = {x : k(x) = 0}."""
+    """Base interface for residuals defining the target set {x: k(x) = 0}."""
 
     def k(self, x):
-        """Constraint function. Returns 0 on the manifold."""
+        """Return the constraint residual, which vanishes on the target set."""
         raise NotImplementedError
 
     def jacobian(self, x):
-        """Jacobian of k w.r.t. x using autograd."""
+        """Gradient of sum(k(x)) with respect to x, retaining the autograd graph."""
         x_req = x.detach().requires_grad_(True)
         kx = self.k(x_req)
         J = torch.autograd.grad(kx.sum(), x_req, create_graph=True)[0]
         return J
 
     def distance(self, x):
-        """Squared distance to manifold: ||k(x)||^2."""
+        """Return squared residual norm ||k(x)||^2 for each state."""
         kx = self.k(x)
         return (kx ** 2).sum(dim=-1)
 
     def project(self, x, n_steps=5, lr=0.1):
-        """Iterative projection onto manifold via gradient descent on ||k(x)||^2."""
+        """Apply n_steps of gradient descent to the summed squared residual norm."""
         xp = x.clone().detach().requires_grad_(True)
         for _ in range(n_steps):
             loss = self.distance(xp).sum()
@@ -34,13 +34,10 @@ class ConstraintManifold:
 
 
 class FHNManifold(ConstraintManifold):
-    """FitzHugh-Nagumo memory-dependent energy constraint.
+    """Threshold violations for a two-field state and appended memory value.
 
-    Energy E(t) evolves as dE/dt = (u^2 + v^2) - gamma*E.
-    Constraint: E(t) <= E_threshold.
-    k(x) = max(0, E - E_threshold).
-
-    For the discretized system, state includes the energy variable E appended.
+    The residuals are relu(E - e_threshold) and
+    relu(mean(u^2 + v^2) - 2). Thresholds use the coordinates supplied to k.
     """
 
     def __init__(self, n_grid=8, gamma=0.5, e_threshold=6.1):
@@ -49,33 +46,23 @@ class FHNManifold(ConstraintManifold):
         self.e_threshold = e_threshold
 
     def k(self, x):
-        """x: (..., 2*n_grid + 1) where last dim is E.
-
-        Constraint includes:
-        1. Energy bound: relu(E - threshold)
-        2. State norm bound: mean(u^2 + v^2) soft limit
-        """
+        """Return two threshold violations for x shaped (..., 2*n_grid + 1)."""
         E = x[..., -1]
         u = x[..., :self.n_grid]
         v = x[..., self.n_grid:2*self.n_grid]
-        # Energy constraint
+        # Memory-coordinate threshold.
         k1 = torch.relu(E - self.e_threshold)
-        # State amplitude constraint (soft, based on cubic nonlinearity stability)
+        # Mean squared-amplitude threshold.
         state_energy = (u.pow(2) + v.pow(2)).mean(dim=-1)
-        k2 = torch.relu(state_energy - 2.0)  # tighter bound
+        k2 = torch.relu(state_energy - 2.0)
         return torch.stack([k1, k2], dim=-1)
 
 
 class LVManifold(ConstraintManifold):
-    """Lotka-Volterra ecological constraints.
+    """Ratio, positivity, and optional biomass residuals for two fields.
 
-    Three biologically motivated constraints that align with trajectory accuracy:
-    k1: Ratio stability — v/u should stay within [ratio_lo, ratio_hi]
-        (NODE drift amplifies ratio deviation → correction reduces both CE and MSE)
-    k2: Positivity — populations must be non-negative
-        (NODE can predict negative populations at long horizons)
-    k3: Biomass bound — total (u+v) should not exceed carrying capacity
-        (NODE overpredicts growth → correction pulls back)
+    The ratio is mean(v) / mean(u), with each mean clamped below at 1e-6.
+    Biomass is dx * sum(u + v); its residual is zero when biomass_max is None.
     """
 
     def __init__(self, n_grid=15, ratio_lo=0.45, ratio_hi=0.60,
@@ -83,7 +70,7 @@ class LVManifold(ConstraintManifold):
         self.n_grid = n_grid
         self.ratio_lo = ratio_lo
         self.ratio_hi = ratio_hi
-        self.biomass_max = biomass_max  # auto-calibrated from data
+        self.biomass_max = biomass_max
         self.dx = dx or 1.0 / n_grid
 
     def k(self, x):
@@ -91,7 +78,7 @@ class LVManifold(ConstraintManifold):
         u = x[..., :self.n_grid]
         v = x[..., self.n_grid:2 * self.n_grid]
 
-        # k1: Predator-prey ratio constraint (tight bounds from data)
+        # k1: Bounds on the ratio of field means.
         u_mean = u.mean(dim=-1).clamp(min=1e-6)
         v_mean = v.mean(dim=-1).clamp(min=1e-6)
         ratio = v_mean / u_mean
@@ -100,7 +87,7 @@ class LVManifold(ConstraintManifold):
         # k2: Positivity
         k2 = torch.relu(-u).mean(dim=-1) + torch.relu(-v).mean(dim=-1)
 
-        # k3: Biomass carrying capacity
+        # k3: Optional biomass upper bound.
         if self.biomass_max is not None:
             biomass = (u + v).sum(dim=-1) * self.dx
             k3 = torch.relu(biomass - self.biomass_max)
@@ -161,11 +148,7 @@ class LVManifoldSmooth(ConstraintManifold):
 
 
 class LVManifoldAmplitude(ConstraintManifold):
-    """LV constraint: state amplitude bound (FHN-style).
-
-    When NODE drifts, population amplitudes grow beyond physical range.
-    Correction pulls amplitudes back → also reduces trajectory error.
-    """
+    """Positive-part residual of a mean squared-amplitude upper bound."""
 
     def __init__(self, n_grid=15, amp_threshold=16.0, **kwargs):
         self.n_grid = n_grid
@@ -180,16 +163,16 @@ class LVManifoldAmplitude(ConstraintManifold):
 
 
 class SWManifoldAmplitude(ConstraintManifold):
-    """SW constraint: state amplitude + energy conservation (FHN-style).
+    """Amplitude violation and deviation from an optional quadratic reference.
 
-    k1: amplitude bound — prevents NODE from overshooting wave heights
-    k2: energy drift — total energy should be approximately conserved
+    k1 is relu(mean(eta^2 + u^2) - amp_threshold).
+    k2 is abs(E - energy_ref), or zero when energy_ref is None.
     """
 
     def __init__(self, n_grid=50, amp_threshold=1.0, energy_ref=None, **kwargs):
         self.n_grid = n_grid
         self.amp_threshold = amp_threshold
-        self.energy_ref = energy_ref  # auto-calibrated from initial energy
+        self.energy_ref = energy_ref
 
     def k(self, x):
         eta = x[..., :self.n_grid]
@@ -200,7 +183,7 @@ class SWManifoldAmplitude(ConstraintManifold):
         amp = (eta.pow(2) + u.pow(2)).mean(dim=-1)
         k1 = torch.relu(amp - self.amp_threshold)
 
-        # k2: energy conservation (drift from reference)
+        # k2: Absolute deviation from the supplied quadratic reference.
         E = 0.5 * (9.81 * eta.pow(2) + 1.0 * u.pow(2)).sum(dim=-1) * dx
         if self.energy_ref is not None:
             k2 = (E - self.energy_ref).abs()
@@ -211,10 +194,10 @@ class SWManifoldAmplitude(ConstraintManifold):
 
 
 class SWManifold(ConstraintManifold):
-    """Shallow Water multi-scale energy conservation.
+    """Residuals for weighted spectral energy and cross-scale interaction.
 
-    Sum_i w_i * E_i(t) = E_total, with w=[1, 0.5, 0.25], E_total=0.1.
-    Also cross-scale interaction Phi=0.
+    The spectral energy uses weights [1, 0.5, 0.25] and target e_total.
+    The second residual is the cross-scale interaction Phi.
     """
 
     def __init__(self, n_grid=50, g=9.81, H=1.0, e_total=0.1):
@@ -243,7 +226,7 @@ class SWManifold(ConstraintManifold):
         return etas, us
 
     def k(self, x):
-        """x: (..., 2*n_grid) [eta(50), u(50)]."""
+        """Return two residuals for x shaped (..., 2*n_grid), with fields eta and u."""
         eta = x[..., :self.n_grid]
         u = x[..., self.n_grid:2 * self.n_grid]
         etas, us = self._decompose_scales(eta, u)
@@ -263,13 +246,10 @@ class SWManifold(ConstraintManifold):
 
 
 class RobotManifold(ConstraintManifold):
-    """Robot state amplitude + velocity constraints (FHN-style).
+    """Amplitude and velocity thresholds for a 14-coordinate robot state.
 
-    State: [q(7), q_dot(7)] = 14D
-    k1: state amplitude — mean(q^2 + qdot^2) bounded
-        When NODE drifts, joint angles and velocities grow → k1 triggers
-    k2: velocity smoothness — mean(qdot^2) bounded
-        Prevents velocity blowup which is the main failure mode
+    State ordering is [q(7), qdot(7)]. The two residuals bound
+    mean(q^2 + qdot^2) and mean(qdot^2), respectively.
     """
 
     def __init__(self, amp_threshold=3.0, vel_threshold=2.0):
@@ -281,11 +261,11 @@ class RobotManifold(ConstraintManifold):
         q = x[..., :7]
         qdot = x[..., 7:14]
 
-        # k1: state amplitude bound (like FHN k2)
+        # k1: Mean squared position-and-velocity bound.
         amp = (q.pow(2) + qdot.pow(2)).mean(dim=-1)
         k1 = torch.relu(amp - self.amp_threshold)
 
-        # k2: velocity energy bound
+        # k2: Mean squared-velocity bound.
         vel_energy = qdot.pow(2).mean(dim=-1)
         k2 = torch.relu(vel_energy - self.vel_threshold)
 

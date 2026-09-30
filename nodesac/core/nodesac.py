@@ -1,16 +1,9 @@
-"""NODE-LAC: Neural ODE with Lagrangian Adaptive Correction.
+"""NODE-LAC model components and multiple-shooting training utilities.
 
-Core idea: dx/dt = f(x) - kappa(x) * gate(||k||) * grad||k(x)||^2
-
-kappa(x) is a state-dependent gain learned via one-step lookahead.
-NODE is trained with closed-loop dynamics — the correction acts as
-constraint-aware regularization, forcing NODE to learn dynamics that
-co-adapt with the correction term.
-
-"LAC" = Lagrangian Adaptive Correction:
-  - Soft: softplus gain + effort regularization (minimal intervention)
-  - Adaptive: state-dependent kappa(x) + dual variable mu (Lagrangian dual variable)
-  - Correction: constraint-gradient correction term
+The correction multiplies a positive learned gain, a tanh violation gate,
+and a clipped constraint gradient. Trajectory fitting holds the correction
+fixed during differentiation; one-step predictions train the gain. A scalar
+Lagrangian multiplier adapts the weight of the sampled violation loss.
 """
 
 import torch
@@ -40,10 +33,10 @@ class GainNet(nn.Module):
 
 
 class ClosedLoopDynamics(nn.Module):
-    """dx/dt = f_theta(x) - kappa(x) * gate * grad||k(x)||^2
+    """Vector field with a gated, clipped constraint-gradient correction.
 
-    gain is detached (no_grad) — NODE trains through f(x) with the correction
-    as a fixed perturbation. GainNet is trained separately via one-step lookahead.
+    The correction is evaluated at the current state and detached during
+    trajectory differentiation. GainNet is trained by one-step predictions.
     """
 
     def __init__(self, node_net, gain_net, manifold, correction_scale=1.0):
@@ -77,15 +70,11 @@ class ClosedLoopDynamics(nn.Module):
 
 
 class NODESAC(nn.Module):
-    """NODE-LAC: Neural ODE with Lagrangian Adaptive Correction.
+    """NODE-LAC model with multiple-shooting and one-step gain training.
 
-    Training:
-      - NODE: multiple shooting with closed-loop dynamics (correction as regularizer)
-      - GainNet: one-step lookahead minimizing constraint violation (direct gradient)
-      - mu: dual ascent on constraint violation (Lagrangian dual variable)
-
-    The coupled training is key: NODE co-adapts with the correction term,
-    learning dynamics that work synergistically with the gain.
+    Trajectory fitting updates the vector field with the correction held fixed.
+    One-step constraint violation and gain regularization update GainNet.
+    Full-trajectory violation supplies feedback to the scalar multiplier.
     """
 
     def __init__(self, state_dim, manifold, action_dim=None,
@@ -109,7 +98,7 @@ class NODESAC(nn.Module):
         self.node_optim = torch.optim.Adam(self.node.parameters(), lr=6e-3, weight_decay=reg_lambda)
         self.gain_optim = torch.optim.Adam(self.gain_net.parameters(), lr=1e-3)
 
-        # Dual variable mu: Lagrangian "critic"
+        # Log-parameterized Lagrangian constraint weight.
         self.log_mu = torch.tensor(np.log(0.1), dtype=dtype, device=device, requires_grad=True)
         self.mu_optim = torch.optim.Adam([self.log_mu], lr=1e-2)
         self.constr_target = 0.01
@@ -157,11 +146,7 @@ class NODESAC(nn.Module):
         return total_loss / max(n_windows, 1)
 
     def _gain_loss_onestep(self, batch_x, t_span):
-        """One-step lookahead training for GainNet (fully vectorized).
-
-        Flattens all (batch, time) pairs into one batch for parallel computation.
-        No Python loop over timesteps.
-        """
+        """Compute one-step violation and gain penalties over batch-time pairs."""
         B, T, D = batch_x.shape
         if T < 2:
             zero = torch.tensor(0.0, device=self.device, dtype=self.dtype)
@@ -171,11 +156,11 @@ class NODESAC(nn.Module):
         x_all = batch_x[:, :-1].reshape(-1, D).detach()  # (B*(T-1), D)
         dt_all = (t_span[1:] - t_span[:-1]).unsqueeze(0).expand(B, -1).reshape(-1, 1)  # (B*(T-1), 1)
 
-        # Frozen NODE
+        # Hold the vector-field output fixed for the gain update.
         with torch.no_grad():
             f_x = self.node.f(x_all)
 
-        # Constraint gradient + gate (vectorized autograd)
+        # Evaluate the constraint gradient and violation gate at observed states.
         with torch.enable_grad():
             x_d = x_all.detach().clone().requires_grad_(True)
             kx = self.manifold.k(x_d)
@@ -215,13 +200,11 @@ class NODESAC(nn.Module):
 
     def train_epoch_alternating(self, dataloader, t_span, update_ratio=2,
                                 constr_weight=0.1, correction_ramp=1.0):
-        """Phase 2: Coupled NODE + GainNet training.
+        """Update the vector field, gain network, and scalar multiplier.
 
-        Step A: NODE trains via shooting on closed-loop dynamics
-                (gain is detached; correction acts as regularizer for NODE)
-        Step B: GainNet trains via one-step lookahead
-                (NODE frozen; direct per-state gradient for gain)
-        Step C: Dual ascent on mu
+        Multiple-shooting loss updates the vector field with a detached correction.
+        One-step predictions update the gain with the vector field held fixed.
+        The multiplier uses violation from the pre-update full trajectory.
         """
         self.node.train()
         self.gain_net.train()
@@ -233,11 +216,11 @@ class NODESAC(nn.Module):
 
             mu = self.log_mu.exp().clamp(0.01, 1.0)
 
-            # --- Step A: NODE with closed-loop dynamics ---
+            # Fit the vector field with closed-loop multiple shooting.
             dynamics = self._make_dynamics(correction_scale=correction_ramp)
             traj_loss = self._shooting_loss(dynamics, batch_x, t_span, window_size=3)
 
-            # Constraint from closed-loop trajectory
+            # Evaluate full-trajectory violation without trajectory gradients.
             with torch.no_grad():
                 x_pred = euler_integrate(dynamics, batch_x[:, 0], t_span).permute(1, 0, 2)
             constr_node = self.manifold.distance(x_pred).mean()
@@ -248,7 +231,7 @@ class NODESAC(nn.Module):
             nn.utils.clip_grad_norm_(self.node.parameters(), 1.0)
             self.node_optim.step()
 
-            # --- Step B: GainNet via one-step lookahead ---
+            # Update the gain from one-step predictions.
             constr_gain, effort = self._gain_loss_onestep(batch_x, t_span)
             gain_loss = mu.detach() * constr_gain + self.lambda_effort * effort
 
@@ -257,7 +240,7 @@ class NODESAC(nn.Module):
             nn.utils.clip_grad_norm_(self.gain_net.parameters(), 1.0)
             self.gain_optim.step()
 
-            # --- Step C: Dual ascent ---
+            # Update the scalar constraint weight.
             dual_loss = -self.log_mu * (constr_node.detach() - self.constr_target)
             self.mu_optim.zero_grad()
             dual_loss.backward()

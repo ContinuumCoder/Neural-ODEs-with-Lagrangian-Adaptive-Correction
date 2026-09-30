@@ -2,54 +2,71 @@
 
 Code for **Learning Transverse Dynamics: Neural ODEs with Lagrangian Adaptive Correction on Constraint Manifolds**, by Dongzhe Zheng and Wenjie Mei.
 
-NODE-LAC combines a learned vector field with a state-dependent, gated constraint-gradient correction. A gain network learns from one-step predictions, and a Lagrangian multiplier adapts the weight of sampled constraint violation. An optional Lyapunov-residual loss supervises the corrected vector field on reference and predicted states.
-
+NODE-LAC augments a learned vector field with a gated constraint-gradient correction. A state-dependent gain learns through one-step predictions, while a scalar Lagrangian multiplier adapts the constraint-loss weight from trajectory violations. The optional Lyapunov-residual loss updates both the vector field and the gain network.
 
 ## Installation
 
-The supplied environment specifies PyTorch 2.7.1 with CUDA 11.8. Computation uses float64.
+Use Python 3.10-3.12 with the pinned requirements. The experiment environment uses PyTorch 2.7.1 with CUDA 11.8 and float64 computation.
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-python -m pip install -r requirements-revision.txt
+python -m pip install -r requirements.txt
 ```
 
-The examples use a CUDA device; `--device cpu` selects CPU execution.
+Commands below run from the repository root. Use `--device cpu` for CPU execution.
 
-## Data
+## Data and training
 
-Use the four recorded datasets in the [repository data directory](https://github.com/ContinuumCoder/Neural-ODEs-with-Lagrangian-Adaptive-Correction/tree/6bd8aa176cffe3cad389267990d6ac8ba4e78790/results):
+The four recorded datasets are included in `results/`. Their SHA-256 hashes are checked against [data_manifest.json](data_manifest.json) before execution. The data consist of 256 trajectories per system: 102 fitting, 26 validation, and 128 test trajectories. Standardization uses the fitting partition.
 
-- `fitzhugh_nagumo_data.pt`
-- `lotka_volterra_data.pt`
-- `shallow_water_data.pt`
-- `franka_robot_data.pt`
-
-Place these files in a directory such as `data`. The runner checks their SHA-256 hashes against [revision/data_manifest.json](revision/data_manifest.json) before training. A dry run verifies the files and prints the experiment plan:
+Verify the datasets and inspect the run plan:
 
 ```bash
-python reproduce.py --suite main --data-dir data --output-dir outputs --dry-run
+python reproduce.py --suite main --output-dir outputs --dry-run
 ```
 
-## Reproduction
-
-The entry point calls the training implementations used for the reported experiments. The main comparison uses four systems, NODE-LAC and nine comparators, and seeds 42, 123, and 456:
+Train all ten methods with seeds 42, 123, and 456:
 
 ```bash
-python reproduce.py --suite main --data-dir data --output-dir outputs \
-  --seeds 42 123 456 --device cuda:0
+python reproduce.py --suite main --output-dir outputs --device cuda:0 --save-predictions
 ```
 
-The residual-loss comparison pairs each regularized model with its zero-weight control at the published settings:
+For a smaller comparison, add `--systems fitzhugh_nagumo --methods NODE-LAC NODE SNDE`. Use `--data-dir` to select another location for the same recorded datasets.
+
+## Experiments
+
+The same entry point provides the component ablations, data-efficiency, observation-noise, and paired residual-loss comparisons:
 
 ```bash
-python reproduce.py --suite residual --variant paired \
-  --data-dir data --output-dir outputs --seeds 42 123 456 --device cuda:0
+python reproduce.py --suite ablation --output-dir outputs --device cuda:0
+python reproduce.py --suite data-efficiency --output-dir outputs --device cuda:0
+python reproduce.py --suite noise --output-dir outputs --device cuda:0
+python reproduce.py --suite residual --output-dir outputs --device cuda:0
 ```
 
-Use `--systems` and, for the main suite, `--methods` to select a subset. See [reproduction details](docs/reproduction.md) for configurations, outputs, and metric definitions.
+Long-horizon evaluation reuses the trained main-suite models and their selected correction scales:
 
-## Interpretation
+```bash
+python reproduce.py --suite long-horizon --model-dir outputs --output-dir outputs --device cuda:0
+```
 
-Prediction MSE and MAE, state-increment error (TCE), standardized threshold violation (CE), and Lyapunov residuals measure different properties. The experimental constraints define inequality feasible sets in standardized coordinates. The equality-manifold stability results assume the stated regularity, invariant-region, and pointwise decay conditions. Training behavior and sampled decay diagnostics are evaluated empirically across three seeds.
+See [reproduction details](docs/reproduction.md) for method settings, residual configurations, metric definitions, and output formats.
+
+## Figures
+
+Generate compact figures directly from completed experiment outputs:
+
+```bash
+python -m experiments.plotting --input-dir outputs --output-dir plots --kind all
+```
+
+Trajectory and surface figures require main-suite predictions saved with `--save-predictions`. Figures show three-seed means and sample standard deviations; the trajectory display applies a centered five-observation average to PNODE and CPNODE within each seed.
+
+## Tests
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+The tests cover the training gradients, dual updates, residual computation, data handling, experiment dispatch, and plotting statistics.

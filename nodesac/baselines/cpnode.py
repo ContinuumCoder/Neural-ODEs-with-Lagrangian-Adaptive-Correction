@@ -1,4 +1,4 @@
-"""Continuously-Penalized NODE (Norcliffe et al. 2020)."""
+"""Neural ODE with a continuous constraint-penalty accumulator."""
 
 import torch
 import torch.nn as nn

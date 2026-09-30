@@ -1,12 +1,12 @@
-"""Lotka-Volterra ecosystem with global coupling and energy tracking.
+"""Lotka-Volterra benchmark with global coupling and a memory variable.
 
-Reaction-diffusion PDE with mean-field interaction:
-  du/dt = D1*Lap(u) + alpha*u*(1-u/K) - beta*u*v/(1+h*u) + G1(u_mean) + I(t)
-  dv/dt = D2*Lap(v) + delta*u*v/(1+h*u) - gamma*v + G2(v_mean) + J(t)
+Reaction-diffusion equations with mean-field interaction:
+  du/dt = D1*Lap(u) + alpha*u*(1-u/K) - beta*u*v/(1+h*u) + G1 + I(t)
+  dv/dt = D2*Lap(v) + delta*u*v/(1+h*u) - gamma*v + G2 + J(t)
   dE/dt = mean(u^2+v^2) - gamma_E*E
 
-Global mean-field coupling G1, G2 breaks locality → PORT-HJNN's Hamiltonian
-prior is less effective. Energy variable E enables FHN-style constraint.
+G1 and G2 couple each field to its spatial mean. E records a filtered
+quadratic magnitude.
 """
 
 import numpy as np
@@ -33,7 +33,7 @@ class LotkaVolterra(DynamicalSystem):
         self.noise_std = noise_std
         self.dx = 1.0 / n_grid
         self.state_dim = 2 * n_grid + 1  # u(n) + v(n) + E
-        self.e_threshold = None  # auto-calibrated
+        self.e_threshold = None
 
     def get_manifold(self):
         return FHNManifold(n_grid=self.n_grid, gamma=self.gamma_E,

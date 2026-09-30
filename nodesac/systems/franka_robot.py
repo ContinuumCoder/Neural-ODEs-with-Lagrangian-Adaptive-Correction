@@ -1,9 +1,7 @@
-"""Coupled pendulum chain — 8-DOF robot with Laplacian diffusion and energy tracking.
+"""Coupled robot-arm benchmark with damping and a quadratic memory variable.
 
-Structurally similar to FHN: reaction-diffusion PDE on a 1D chain.
-dq/dt = qdot
-dqdot/dt = D_q*Lap(q) + D_v*Lap(qdot) + tau(t) - d*qdot - g*sin(q) - c*q^3 + I(t)
-dE/dt = mean(q^2+qdot^2) - gamma*E
+The state contains positions, velocities, and the memory value E.
+Trajectory generation is provided by gpu_datagen.generate_robot_gpu.
 """
 
 import torch

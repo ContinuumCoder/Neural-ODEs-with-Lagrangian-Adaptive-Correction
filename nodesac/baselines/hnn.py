@@ -6,7 +6,7 @@ from .base import BaselineModel
 
 
 class HNN(BaselineModel):
-    """Hamiltonian Neural Network with wider layers."""
+    """Hamiltonian vector field from a learned scalar energy."""
 
     def __init__(self, state_dim, hidden_dim=140, **kwargs):
         super().__init__(state_dim, **kwargs)

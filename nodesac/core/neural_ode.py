@@ -23,7 +23,7 @@ class MLP(nn.Module):
 
 
 def euler_integrate(func, x0, t_span):
-    """Simple Euler integration — fast and stable for training."""
+    """Forward Euler integration on the supplied observation-time grid."""
     traj = [x0]
     x = x0
     for i in range(len(t_span) - 1):

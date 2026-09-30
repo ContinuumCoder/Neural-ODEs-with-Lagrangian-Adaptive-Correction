@@ -1,4 +1,4 @@
-"""Stabilized Neural Differential Equations (White et al. 2023)."""
+"""Normalized constraint-gradient baseline inspired by SNDE (White et al. 2023)."""
 
 import torch
 import torch.nn as nn
@@ -6,9 +6,10 @@ from .base import BaselineModel
 
 
 class SNDE(BaselineModel):
-    """SNDE: NODE + explicit constraint stabilization.
+    """Neural vector field with normalized squared-violation correction.
 
-    dx/dt = f(x) - J^T (J J^T)^{-1} (J f(x) + alpha * k(x))
+    With Q(x) = ||k(x)||^2 and a(x) = grad Q(x), the field is
+    f(x) - alpha * a(x) * Q(x) / (||a(x)||^2 + 1e-8).
     """
 
     def __init__(self, state_dim, constraint_fn=None, constraint_dim=1,
@@ -38,7 +39,7 @@ class SNDE(BaselineModel):
                 grad = torch.autograd.grad(kx_scalar, x_req, create_graph=False)[0]
             if grad is None:
                 return f_x
-            # Simple correction: push towards manifold along gradient
+            # Normalize the squared-violation gradient.
             grad_norm = grad.pow(2).sum(dim=-1, keepdim=True) + 1e-8
             kx_val = self.constraint_fn(x)
             correction = self.alpha_stab * grad * kx_val.pow(2).sum(dim=-1, keepdim=True) / grad_norm

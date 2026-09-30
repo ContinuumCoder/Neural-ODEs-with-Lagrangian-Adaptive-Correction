@@ -1,4 +1,4 @@
-"""FitzHugh-Nagumo model with memory-dependent energy constraints."""
+"""FitzHugh-Nagumo benchmark with a filtered quadratic memory variable."""
 
 import numpy as np
 import torch
@@ -8,13 +8,13 @@ from ..core.manifold import FHNManifold
 
 
 class FitzHughNagumo(DynamicalSystem):
-    """FitzHugh-Nagumo reaction-diffusion PDE discretized on spatial grid.
+    """Two-field reaction-diffusion benchmark on a periodic spatial grid.
 
     du/dt = c1^2 * d2u/dx2 - a1*u^3 + b1*u*v + I(t)
     dv/dt = c2^2 * d2v/dx2 - a2*v^3 + b2*v*u + J(t)
+    dE/dt = mean(u^2 + v^2) - gamma*E
 
-    With memory-dependent energy constraint:
-    dE/dt = mean(u^2 + v^2) - gamma*E, E <= E_threshold
+    The constraint object evaluates memory and amplitude thresholds.
     """
 
     def __init__(self, n_grid=8, c1=1.0, c2=1.2, a1=5.05, a2=7.05,

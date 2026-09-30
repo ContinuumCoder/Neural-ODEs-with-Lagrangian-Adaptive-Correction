@@ -1,4 +1,4 @@
-"""Constrained Lagrangian Neural Networks (Finzi et al. 2020)."""
+"""Learned mass-and-potential baseline with linear damping."""
 
 import torch
 import torch.nn as nn
@@ -6,10 +6,11 @@ from .base import BaselineModel
 
 
 class CLNN(BaselineModel):
-    """Constrained Lagrangian NN.
+    """Mass-and-potential vector field for position and velocity states.
 
-    L(q, qdot) = T - V = 0.5 * qdot^T M(q) qdot - V(q)
-    Euler-Lagrange: M(q) qddot + C(q,qdot) qdot + dV/dq = 0
+    dq/dt = qdot
+    dqdot/dt = M(q)^(-1) * (-grad V(q) - 0.01*qdot)
+    M(q) = L(q) L(q)^T + 0.1 I, with lower-triangular L(q).
     """
 
     def __init__(self, state_dim, hidden_dim=132, **kwargs):
@@ -18,7 +19,7 @@ class CLNN(BaselineModel):
         self.half_dim = state_dim // 2
         d = self.half_dim
 
-        # Mass matrix network: outputs lower triangular L, M = L L^T + eps I
+        # Mass network output is reshaped and lower-triangularized.
         self.mass_net = nn.Sequential(
             nn.Linear(d, hidden_dim),
             nn.Tanh(),
@@ -46,14 +47,14 @@ class CLNN(BaselineModel):
         q = x[..., :self.half_dim]
         qdot = x[..., self.half_dim:]
 
-        # Compute M(q) and V(q) with gradients
+        # Evaluate the mass matrix and potential gradient.
         with torch.enable_grad():
             q_req = q.detach().clone().requires_grad_(True)
             M = self.mass_matrix(q_req)
             V = self.V_net(q_req)
             dV_dq = torch.autograd.grad(V.sum(), q_req, create_graph=True)[0]
 
-        # dM/dq for Coriolis: simplified as finite difference
+        # Invert the mass matrix for the damped potential force.
         M_val = self.mass_matrix(q)
         M_inv = torch.linalg.solve(M_val, torch.eye(self.half_dim, device=q.device, dtype=q.dtype).expand_as(M_val))
 

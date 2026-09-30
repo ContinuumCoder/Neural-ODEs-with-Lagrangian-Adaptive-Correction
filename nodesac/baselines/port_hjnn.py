@@ -1,7 +1,6 @@
-"""Port-Hamiltonian Neural Networks (Desai et al. 2021).
+"""Port-Hamiltonian vector field with full or low-rank matrix factors.
 
-Optimized: uses low-rank factorization for J and R when state_dim > 32,
-avoiding O(d^2) network outputs and O(d^3) matrix operations.
+Uses low-rank factors for J and R when state_dim > 32.
 """
 
 import torch
@@ -10,16 +9,12 @@ from .base import BaselineModel
 
 
 class PortHJNN(BaselineModel):
-    """Port-Hamiltonian NN: dx/dt = (J(x) - R(x)) * dH/dx.
+    """Port-Hamiltonian vector field dx/dt = (J(x) - R(x)) * grad H(x).
 
-    J: skew-symmetric (learned)
-    R: positive semi-definite dissipation (R = S^T S)
-    H: Hamiltonian (learned)
-
-    For high-dim systems (d > 32), uses low-rank factorization:
-      J = A B^T - B A^T  (rank-2r skew-symmetric)
-      R = C^T C           (rank-r PSD)
-    This reduces output dim from O(d^2) to O(d*r) and matmul from O(d^3) to O(d*r).
+    J is skew-symmetric and R is positive semidefinite.
+    For d > 32, J = A B^T - B A^T and R = 0.01 C^T C; their ranks
+    are at most 2r and r. These matrix-vector products cost O(d*r).
+    For smaller d, the model constructs J and R = 0.01 S^T S explicitly.
     """
 
     def __init__(self, state_dim, hidden_dim=128, rank=16, **kwargs):
@@ -27,7 +22,7 @@ class PortHJNN(BaselineModel):
         self.d = state_dim
         self.use_lowrank = state_dim > 32
 
-        # Hamiltonian network — same for all dims
+        # Scalar Hamiltonian network.
         self.H_net = nn.Sequential(
             nn.Linear(state_dim, hidden_dim),
             nn.Tanh(),
@@ -49,7 +44,7 @@ class PortHJNN(BaselineModel):
                 nn.Tanh(),
                 nn.Linear(hidden_dim // 2, state_dim * self.rank),
             )
-            # R factor: C ∈ R^{r×d} → R = C^T C
+            # R factor: C has shape (r, d), with R = 0.01 C^T C.
             self.C_net = nn.Sequential(
                 nn.Linear(state_dim, hidden_dim // 2),
                 nn.Tanh(),
@@ -81,7 +76,7 @@ class PortHJNN(BaselineModel):
             return self._forward_full(x, dH)
 
     def _forward_lowrank(self, x, dH):
-        """Low-rank: J*dH = A(B^T dH) - B(A^T dH), R*dH = C^T(C dH)."""
+        """Apply J and R through their factors without constructing full matrices."""
         d, r = self.d, self.rank
         batch = x.shape[:-1]
 
@@ -102,7 +97,7 @@ class PortHJNN(BaselineModel):
         return J_dH - R_dH
 
     def _forward_full(self, x, dH):
-        """Full matrix for small dims."""
+        """Construct J and R and apply them to the Hamiltonian gradient."""
         d = self.d
         batch = x.shape[:-1]
 

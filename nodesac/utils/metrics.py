@@ -14,7 +14,11 @@ def mae(pred, true):
 
 
 def constraint_error(states, constraint_fn):
-    """Constraint Error: CE = (1/T) * sum ||k(x_t)||^2."""
+    """Time-average squared constraint residuals.
+
+    For (T, D) inputs, residual components are summed at each time.
+    For (batch, T, D) inputs, batch and residual components are averaged.
+    """
     T = states.shape[-2] if states.dim() >= 2 else 1
     total = 0.0
     if states.dim() == 2:
@@ -32,7 +36,7 @@ def constraint_error(states, constraint_fn):
 
 
 def stability_score(states, constraint_fn, threshold=0.1):
-    """Fraction of timesteps where constraint is satisfied (within threshold)."""
+    """Fraction of sampled states with squared residual norm below threshold."""
     satisfied = 0
     total = 0
     if states.dim() == 3:
@@ -51,10 +55,7 @@ def stability_score(states, constraint_fn, threshold=0.1):
 
 
 def temporal_coherence_error(pred, true):
-    r"""Temporal Coherence Error (TCE): measures whether predicted dynamics
-    match true dynamics evolution.
-    TCE = (1/NT) * sum |(\hat{x}_{t+1} - \hat{x}_t) - (x_{t+1} - x_t)|^2
-    """
+    """Mean squared error between predicted and reference state increments."""
     if pred.dim() == 2:
         # (T, D)
         pred_diff = pred[1:] - pred[:-1]

@@ -1,4 +1,4 @@
-"""Penalized Neural ODE (Massaroli et al. 2020)."""
+"""Neural ODE with sampled constraint-violation penalties."""
 
 import torch.nn as nn
 from .base import BaselineModel

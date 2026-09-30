@@ -1,4 +1,4 @@
-"""ConCerNet: Conservation law discovery (Zhang et al. 2023)."""
+"""Scalar-gradient projection baseline inspired by ConCerNet (Zhang et al. 2023)."""
 
 import torch
 import torch.nn as nn
@@ -6,7 +6,7 @@ from .base import BaselineModel
 
 
 class ConCerNet(BaselineModel):
-    """ConCerNet: learns dynamics + conserved quantity, then projects."""
+    """Project a learned vector field against an auxiliary scalar gradient."""
 
     def __init__(self, state_dim, hidden_dim=128, proj_dim=64, **kwargs):
         super().__init__(state_dim, **kwargs)
@@ -18,7 +18,7 @@ class ConCerNet(BaselineModel):
             nn.Tanh(),
             nn.Linear(hidden_dim, state_dim),
         )
-        # Conservation quantity network h(x)
+        # Auxiliary scalar network h(x).
         self.conserve_net = nn.Sequential(
             nn.Linear(state_dim, proj_dim),
             nn.Tanh(),
@@ -39,7 +39,7 @@ class ConCerNet(BaselineModel):
         if grad_h is None:
             return f_x
 
-        # Project: f_proj = f - grad_h * (grad_h^T f) / (grad_h^T grad_h)
+        # Project with denominator ||grad h||^2 + 1e-8.
         gh_norm_sq = (grad_h * grad_h).sum(dim=-1, keepdim=True) + 1e-8
         gh_f = (grad_h * f_x).sum(dim=-1, keepdim=True)
         projection = grad_h * gh_f / gh_norm_sq

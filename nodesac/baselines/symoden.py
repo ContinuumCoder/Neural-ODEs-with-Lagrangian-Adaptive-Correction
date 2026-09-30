@@ -6,7 +6,7 @@ from .base import BaselineModel
 
 
 class SymODEN(BaselineModel):
-    """Symplectic ODE Network preserving Hamiltonian structure.
+    """Hamiltonian vector field on position-momentum coordinate blocks.
 
     dq/dt = dH/dp, dp/dt = -dH/dq
     """
